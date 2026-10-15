@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>一穗玉米的奇遇</title><style>
+*{box-sizing:border-box}html,body{margin:0;background:#101c26;color:#e7dec9;font-family:system-ui,sans-serif}body{min-height:100svh;display:flex;align-items:center;justify-content:center;padding:12px}.film{width:min(1100px,100%)}canvas{display:block;width:100%;aspect-ratio:1000/650;background:#edd6a7;border-radius:14px}footer{display:flex;align-items:center;gap:10px;padding:15px 2px;flex-wrap:wrap}button{background:#263c48;color:#f1e8d5;border:1px solid #45606b;border-radius:24px;padding:10px 17px;font-size:14px;cursor:pointer}button:active{background:#48616b}input{flex:1;min-width:90px;accent-color:#dbb970}#time{font-size:12px;font-variant-numeric:tabular-nums;color:#a8b5b7}#caption{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap} @media(max-width:500px){body{padding:6px}footer{gap:7px}button{padding:10px 12px}canvas{border-radius:9px}}
+button:disabled{opacity:.5;cursor:wait}.export-panel{padding:0 2px 12px;font-size:13px;line-height:1.6;color:#b9c7c8}.export-panel a{display:inline-block;color:#f1e8d5;background:#263c48;border:1px solid #45606b;border-radius:24px;padding:10px 17px;margin-top:8px}.export-panel [hidden]{display:none}#cancelExport{margin-left:8px}#exportStatus{min-height:1.6em;overflow-wrap:anywhere}</style></head><body><main class="film"><canvas id="film" width="1500" height="975" role="img" aria-label="连续2D动画: 玉米从粮仓掉落, 乌龟叼走玉米并钻洞, 狼吞下乌龟后游向海洋, 变成鲸鱼, 最后从头顶喷水孔喷水, 将乌龟喷出."></canvas><footer><button id="play">暂停</button><button id="replay">重新播放</button><input id="seek" type="range" min="0" max="64" step="0.05" value="0" aria-label="播放进度"><span id="time">00:00 / 01:04</span><button id="subs" aria-pressed="true">字幕 开</button><button id="exportVideo">导出视频 (2倍速)</button></footer><section class="export-panel" aria-label="视频导出"><div>15帧/秒采样 -> 30fps视频 · 64秒压缩为32秒 · 含当前字幕</div><div id="exportStatus" role="status" aria-live="polite"></div><button id="cancelExport" hidden>取消导出</button><a id="downloadVideo" hidden>下载视频</a></section><p id="caption" aria-live="off"></p></main>
+<script>
+'use strict';
+const canvas=document.getElementById('film'),c=canvas.getContext('2d'),play=document.getElementById('play'),seek=document.getElementById('seek'),caption=document.getElementById('caption');
+const PI=Math.PI,clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v)),mix=(a,b,t)=>a+(b-a)*t,E=t=>{t=clamp(t);return t*t*(3-2*t)},P=(t,a,b)=>E((t-a)/(b-a));
+let t=0,running=true,last=0,subtitles=true;
+function path(points,fill,stroke='#3f4a39',lw=2){c.beginPath();points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));c.closePath();if(fill){c.fillStyle=fill;c.fill()}if(stroke){c.strokeStyle=stroke;c.lineWidth=lw;c.stroke()}}
+function ellipse(x,y,rx,ry,fill,stroke){c.beginPath();c.ellipse(x,y,Math.max(.01,rx),Math.max(.01,ry),0,0,PI*2);c.fillStyle=fill;c.fill();if(stroke){c.strokeStyle=stroke;c.lineWidth=2;c.stroke()}}
+function line(points,color,width=2){c.beginPath();points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.lineJoin='round';c.stroke()}
+function bez(d,fill,stroke,lw=2){c.beginPath();for(const a of d){const [m,...v]=a;c[m](...v)}if(fill){c.fillStyle=fill;c.fill()}if(stroke){c.strokeStyle=stroke;c.lineWidth=lw;c.stroke()}}
+function local(x,y,s,fn,flip=1){c.save();c.translate(x,y);c.scale(s*flip,s);fn();c.restore()}
+function shadow(x,y,r,alpha=.13){c.save();c.globalAlpha=alpha;ellipse(x,y,r,r*.15,'#193430');c.restore()}
+function corn(x,y,s=1,a=0){local(x,y,s,()=>{c.rotate(a);ellipse(0,0,9,26,'#dca12e','#8b6225');for(let r=-3;r<=3;r++)for(let q=-1;q<=1;q++)ellipse(q*5,r*6,2.2,2.4,r%2?'#f7d76b':'#f2c548');bez([['moveTo',-6,23],['quadraticCurveTo',-24,6,-13,-13],['quadraticCurveTo',-3,1,-6,23]],'#7d9445','#667b3c');bez([['moveTo',3,24],['quadraticCurveTo',22,10,14,-7],['quadraticCurveTo',3,7,3,24]],'#9cab4d','#667b3c');line([[-1,24],[-1,32]],'#788638',3)},1)}
+function turtle(x,y,s,phase,carry=true,blink=false){local(x,y,s,()=>{
+const bob=Math.sin(phase*12)*1.7;
+function leg(ax,ay,side,far){const swing=Math.sin(phase*12+side)*7,footX=ax+swing+(ax<0?-11:11),footY=ay+(far?19:24)-Math.max(0,Math.cos(phase*12+side))*5;
+line([[ax,ay],[mix(ax,footX,.55),ay+12],[footX,footY]],far?'#466d4c':'#5b8050',11);
+ellipse(footX+(ax<0?-2:2),footY,10,5,far?'#74915b':'#a3b972','#506c47');
+for(let j=-1;j<=1;j++)line([[footX+j*4,footY+1],[footX+j*4+1,footY+4]],'#e2dcb2',1.4)}
+leg(-29,8,0,true);leg(25,8,PI,true);
+path([[-40,10],[-57,13],[-41,0]],'#8faa60');ellipse(0,bob,43,30,'#47745c','#304f43');ellipse(-4,-5+bob,35,25,'#698652');path([[-17,-19],[-2,-25],[14,-16],[14,1],[-3,9],[-20,-1]],'#7f9458','#3d624e');line([[-20,-1],[-33,6],[-27,19]],'#3d624e');line([[14,1],[29,8],[25,19]],'#3d624e');line([[-3,9],[-3,27]],'#3d624e');
+leg(-24,19,PI,false);leg(23,19,0,false);
+ellipse(43,2,22,15,'#a8b973','#5b8052');ellipse(53,-1,3.5,4,'#22392e');ellipse(54,-2,1.2,1.2,'#fff1cb');if(blink)line([[49,-1],[56,-1]],'#a8b973',7);line([[51,11],[62,8]],'#597547',1.5);if(carry)corn(66,12,.66,.9)},1)}
+
+function farmer(x,y,phase){local(x,y,1,()=>{shadow(0,89,48);line([[-12,37],[-15,65],[-20,82]],'#4c665b',14);line([[12,37],[18,66],[25,83]],'#4c665b',14);ellipse(-23,85,16,6,'#4c4437');ellipse(29,85,16,6,'#4c4437');path([[-21,-13],[18,-13],[26,41],[-24,41]],'#e4c38d','#725f46');path([[-12,6],[12,6],[19,42],[-18,42]],'#6d897d');line([[-16,-10],[-10,8]],'#6d897d',5);line([[12,-10],[10,8]],'#6d897d',5);const a=P(phase,0,3);line([[22,-5],[38,mix(-16,19,a)],[mix(57,41,a),mix(-29,6,a)]],'#d9ad7b',10);line([[-20,-5],[-33,13],[-29,27]],'#d9ad7b',10);ellipse(0,-29,18,23,'#dbb183','#79674d');ellipse(13,-27,7,5,'#dbb183');path([[-19,-41],[-16,-58],[16,-58],[22,-40]],'#a58b57','#75603f');ellipse(0,-40,33,5,'#c2a46b','#75603f');ellipse(7,-30,2,2,'#3a4032');line([[2,-17],[10,-17]],'#795e46',1.5)},1)}
+function silo(){shadow(290,472,162);path([[148,421],[148,171],[432,171],[432,421]],'#b1b8a0','#58675d',3);for(let y=190;y<420;y+=38)line([[151,y],[429,y]],'#8d9c8a');ellipse(290,171,142,27,'#66735b','#58675d');ellipse(290,171,130,20,'#887a4c');for(let j=0;j<20;j++){const a=j/20*PI*2;corn(290+Math.cos(a)*89,171+Math.sin(a)*14,.58,-a+PI/2)}bez([['moveTo',148,171],['bezierCurveTo',166,207,414,207,432,171]],null,'#d2c8a2',6);c.save();c.beginPath();c.rect(171,185,238,233);c.clip();c.fillStyle='#615b3d';c.fillRect(171,185,238,233);for(let layer=0;layer<6;layer++){const cy=399-layer*34;ellipse(290,cy,112,25,'#a67b35');for(let j=0;j<16;j++){const a=j/16*PI*2;corn(290+Math.cos(a)*78,cy+Math.sin(a)*18,.58,-a+PI/2)}}c.restore();line([[170,185],[170,420],[409,420],[409,185]],'#d2c8a2',8);line([[161,433],[420,433]],'#6f7664',12);for(let i=0;i<7;i++)line([[444,196+i*30],[463,196+i*30]],'#60746a',3);line([[444,180],[444,420]],'#60746a',4);line([[463,180],[463,420]],'#60746a',4)}
+const wolfPts=[[-100,-17],[-69,-30],[-37,-32],[-4,-28],[24,-37],[29,-68],[48,-44],[67,-64],[76,-32],[113,-12],[117,4],[89,12],[65,21],[40,30],[17,29],[-5,25],[-33,26],[-61,23],[-86,12],[-110,-1],[-141,-30],[-111,-23]];
+const whalePts=[[-167,-21],[-119,-55],[-66,-72],[-5,-78],[64,-70],[112,-54],[144,-35],[160,-14],[170,4],[168,29],[154,50],[122,62],[77,68],[24,70],[-17,66],[-56,54],[-91,37],[-119,17],[-152,4],[-193,27],[-226,1],[-191,-18]];
+function beast(x,y,s,phase,morph=0,open=0,flip=1){local(x,y,s,()=>{const m=E(morph),col=(a,b)=>`rgb(${a.map((v,i)=>Math.round(mix(v,b[i],m))).join(',')})`;c.rotate(Math.sin(phase*3)*.025*m);if(m<.99){c.save();c.globalAlpha=1-m;
+// Four articulated legs; opposite pairs share a walking cycle.
+function wolfLeg(ax,far,offset){const cycle=phase*10+offset,swing=Math.sin(cycle)*12,lift=Math.max(0,Math.cos(cycle))*7;
+const kneeX=ax+swing*.42+(ax<0?5:-5),footX=ax+swing,footY=52-lift;
+line([[ax,11],[kneeX,32],[footX,footY-3]],far?'#445356':'#697778',far?9:11);
+line([[kneeX,32],[footX,footY-3]],far?'#596668':'#87908a',6);
+ellipse(footX+5,footY,10,4.5,far?'#48585a':'#697673');
+if(!far)for(let j=0;j<3;j++)line([[footX+6+j*3,footY-1],[footX+7+j*3,footY+2]],'#d2d1bb',1.1)}
+wolfLeg(-48,true,PI);wolfLeg(37,true,0);wolfLeg(-63,false,0);wolfLeg(47,false,PI);
+c.restore()}const pts=wolfPts.map((p,i)=>[mix(p[0],whalePts[i][0],m),mix(p[1],whalePts[i][1],m)]);bez([['moveTo',...pts[0]],...pts.slice(1).map(p=>['lineTo',...p]),['closePath']],col([111,124,123],[61,119,137]),'#354f55',2.5);// Surface detail fades before the original wolf-to-whale morph completes.
+if(m<1){c.save();c.globalAlpha=Math.pow(1-clamp(m*2.5),2);c.save();
+c.beginPath();pts.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));c.closePath();c.clip();
+const fur=c.createLinearGradient(0,-39,0,31);fur.addColorStop(0,'#48575b');fur.addColorStop(.48,'#7f8c8b');fur.addColorStop(1,'#b8bca8');c.fillStyle=fur;c.fillRect(-150,-80,280,115);
+bez([['moveTo',-106,-15],['bezierCurveTo',-57,-43,-6,-21,24,-35],['lineTo',32,-10],['lineTo',21,-16],['lineTo',24,-2],['lineTo',10,-12],['lineTo',9,0],['bezierCurveTo',-25,-13,-58,-11,-94,-4],['closePath']],'#546367',null);
+bez([['moveTo',26,-23],['quadraticCurveTo',30,-5,60,0],['lineTo',76,-7],['quadraticCurveTo',83,8,109,6],['lineTo',92,15],['lineTo',69,15],['lineTo',56,26],['lineTo',45,18],['lineTo',39,29],['lineTo',34,17],['lineTo',28,22],['quadraticCurveTo',17,4,26,-23]],'#c0c2ad',null);
+bez([['moveTo',-104,-11],['quadraticCurveTo',-122,-19,-140,-29],['lineTo',-121,-10],['lineTo',-111,-5]],'#3d5055',null);
+for(let i=0;i<7;i++){const x=-75+i*13;line([[x,-16+(i%2)*3],[x+8,-12+(i%2)*3]],'#98a29a',1.3)}
+c.restore();
+// Ear interiors, cheek, brow and muzzle keep the face readable on a phone.
+path([[31,-48],[32,-62],[43,-45]],'#c2b6a1',null);path([[62,-44],[66,-57],[69,-39]],'#c2b6a1',null);
+line([[32,-52],[34,-58],[39,-48]],'#806f68',1.5);line([[64,-46],[66,-51]],'#806f68',1.5);
+bez([['moveTo',76,-23],['quadraticCurveTo',86,-18,106,-12],['quadraticCurveTo',119,-8,111,-2],['quadraticCurveTo',93,3,80,-5]],'#a8b2a8',null);
+line([[68,-27],[76,-25]],'#34494c',2.6);
+line([[65,-9],[59,-4],[65,-3],[58,3]],'#71817a',1.5);
+ellipse(114,-8,7,4.5,'#24393e');ellipse(115,-10,2.6,1,'#738282');
+c.restore()}
+if(m>0){c.save();c.globalAlpha=m;bez([['moveTo',-65,31],['quadraticCurveTo',-24,95,20,40],['quadraticCurveTo',-15,44,-65,31]],'#386d7c','#355d69');bez([['moveTo',-164,-15],['quadraticCurveTo',-214,-79,-225,-42],['quadraticCurveTo',-215,-14,-181,1]],'#3c788c','#355d69');bez([['moveTo',63,44],['quadraticCurveTo',117,57,156,27]],null,'#83abb0',4);c.restore()}else{path([[31,-48],[32,-62],[43,-45]],'#b5b8a8',null);path([[62,-44],[66,-57],[69,-39]],'#b5b8a8',null);ellipse(114,-8,8,5,'#283d41')}const ex=mix(74,127,m),ey=mix(-20,-7,m);ellipse(ex,ey,3.7,4,'#182f37');ellipse(ex+1,ey-1,1,1,'#e5e3ca');if(open>0){ellipse(mix(95,157,m),mix(8,29,m),mix(25,14,m),mix(29,24,m)*open,'#253c42');if(m<.5){path([[81,-1],[88,9],[94,-1]],'#f1e7ca',null);path([[100,-1],[106,8],[110,-1]],'#f1e7ca',null)}}else line([[mix(83,127,m),mix(8,31,m)],[mix(113,163,m),mix(6,27,m)]],'#294b55',2)},flip)}
+function grass(x,y,seed){line([[x-6,y],[x-11,y-10-seed%5],[x-4,y-3],[x,y-17],[x+3,y-4],[x+9,y-11]],'#7f8d59',1.5)}
+function bg(cam,time){let g=c.createLinearGradient(0,0,0,650);g.addColorStop(0,'#b3d1cd');g.addColorStop(.62,'#f0dab1');g.addColorStop(1,'#b8c5a0');c.fillStyle=g;c.fillRect(0,0,1000,650);ellipse(802-cam*.04,117,47,47,'#f6e4b0');for(let i=0;i<6;i++){let x=((i*283-time*2-cam*.13)%1500+1500)%1500-200;ellipse(x,108+i%3*36,76,13,'#e1e5cd');ellipse(x-30,100+i%3*36,36,20,'#e1e5cd')}
+for(let k=0;k<3;k++){c.beginPath();c.moveTo(0,440);for(let x=0;x<=1020;x+=20)c.lineTo(x,332+k*34+Math.sin((x+cam*(.12+k*.1))/220+k)*29);c.lineTo(1000,650);c.lineTo(0,650);c.closePath();c.fillStyle=['#a7b79b','#99aa86','#8e9d74'][k];c.fill()}
+c.save();c.translate(-cam,0);path([[-1000,455],[1410,455],[1540,475],[1630,507],[1710,650],[-1000,650]],'#c9b485',null);path([[-1000,485],[1440,485],[1500,523],[1570,650],[-1000,650]],'#d7c39a',null);for(let i=0;i<88;i++){let x=i*18+Math.sin(i*7)*9,y=490+(i*29)%145;ellipse(x,y,1.2,1,'#b29d73');if(i%4===0)grass(x,y-36,i)}
+for(let x=620;x<1400;x+=67){line([[x,444],[x,407]],'#8f8a65',5);line([[x-2,419],[x+67,419]],'#9b9270',4)}
+let ocean=c.createLinearGradient(0,430,0,650);ocean.addColorStop(0,'#6da3a7');ocean.addColorStop(1,'#28596d');path([[1545,443],[4500,443],[4500,650],[1690,650],[1615,509]],ocean,null);for(let z=0;z<12;z++){let yy=455+z*17;let start=1555+(yy-450)*.66;for(let x=start;x<cam+1100;x+=125){let xx=x+Math.sin(time*1.2+z)*12;bez([['moveTo',xx,yy],['quadraticCurveTo',xx+25,yy-6,xx+58,yy]],null,z%2?'#82b5b3':'#4b8a96',2)}}bez([['moveTo',1545,443],['quadraticCurveTo',1570+Math.sin(time)*4,485,1615,509],['quadraticCurveTo',1670,560,1690,650]],null,'#e9e2bb',7);c.restore()}
+function splash(x,y,p,n=18){if(p<0||p>1)return;for(let i=0;i<n;i++){let a=PI+((i+.5)/n)*PI;let v=45+(i%5)*15;ellipse(x+Math.cos(a)*v*p,y+Math.sin(a)*v*p+120*p*p,2.5*(1-p)+.5,5*(1-p)+1,'#d9e5d2')}}
+function render(time){c.setTransform(1.5,0,0,1.5,0,0);c.clearRect(0,0,1000,650);const cam=mix(0,620,P(time,14,22))+mix(0,720,P(time,32,41))+mix(0,730,P(time,41,51));bg(cam,time);c.save();c.translate(-cam,0);silo();farmer(510,365,time);
+// The same ear stays with the turtle through every stage.
+if(time<11){const p=P(time,4,7);const x=mix(371,544,p),y=mix(238,469,p);const bounce=time>7&&time<8?Math.sin((time-7)*PI)*-19:0;corn(x,y+bounce,.9,mix(.9,4.8,p)+Math.sin(time*10)*.04*(time>3&&time<5?1:0))}
+// Hole is drawn into the same landscape; rim later occludes the turtle.
+const digging=P(time,20,24);if(time>20){ellipse(1160,482,50*digging,14*digging,'#7f6d4b');ellipse(1160,478,42*digging,11*digging,'#3b4436')}
+if(time>=7&&time<26){let x=time<11?mix(800,610,P(time,7,11)):mix(610,1120,P(time,12,21));let y=456+Math.sin(time*15)*1.3;let size=1;let flip=time<11?-1:time<12?-Math.cos(PI*P(time,11,12)):1;if(time>=23){x=mix(1120,1160,P(time,23,26));y+=P(time,23,26)*28;size=1-P(time,23,26)*.92}shadow(x,482,46*size);local(x,y,size,()=>turtle(0,0,1,time,time>=11),flip);if(time>20&&time<24)for(let i=0;i<12;i++){let p=((time*2+i*.13)%1);ellipse(1128-p*65,477-Math.sin(p*PI)*38,3.5,2.5,'#a58e62')}}
+if(time>23){bez([['moveTo',1112,484],['quadraticCurveTo',1160,506,1208,484]],null,'#c1a577',8)}
+if(time>=26&&time<42){let x= mix(1470,1260,P(time,26,30));let y=426;let flip=-1;let mouth=P(time,30,31)*(1-P(time,32.3,33));if(time>=30&&time<32.3){y+=Math.sin(P(time,30,32.3)*PI)*25}if(time>=33){flip=-Math.cos(PI*P(time,33,34));x=mix(1260,1640,P(time,34,41));y=mix(426,493,P(time,39,42))}shadow(x,y+52,90);beast(x,y,1,time,0,mouth,flip);if(time>=31&&time<32.5){const p=P(time,31,32.5);turtle(mix(1160,1165,p),mix(474,441,p),mix(.75,.02,p),time,true)}if(time>=40)splash(x,501,(time-40)/2)}
+if(time>=42){const p=P(time,43,49),x=mix(1630,2510,P(time,42,54)),y=510+Math.sin(time*1.5)*5;
+beast(x,y,mix(1,1.15,p),time,p,0,1);if(time<44)splash(x+90,512,(time-42)/2);
+// Blowhole sits on the whale's crown, separate from its closed mouth.
+if(time>=49){const holeX=x+37,holeY=y-84;ellipse(holeX,holeY,8,3,'#254d5a');
+const jet=P(time,54,54.65)*(1-P(time,57,58.3));
+if(jet>0){const topY=holeY-202*jet;
+bez([['moveTo',holeX-5,holeY],['bezierCurveTo',holeX-11,holeY-70,holeX-20,topY+38,holeX-35,topY+9],['quadraticCurveTo',holeX,topY-12,holeX+35,topY+9],['bezierCurveTo',holeX+17,topY+42,holeX+9,holeY-64,holeX+5,holeY],['closePath']],'#b6dedb',null);
+line([[holeX,holeY-5],[holeX-2,holeY-70*jet],[holeX,topY+18]],'#e2f1e3',4);
+for(let i=0;i<32;i++){let q=(time*1.4+i*.127)%1,a=-PI*.93+(i%13)/12*PI*.86;let r=(22+100*q)*jet;ellipse(holeX+Math.cos(a)*r,topY+Math.sin(a)*r+85*q*q,1.5+(1-q)*2,3+(1-q)*2,'#d9eeDF')}}
+if(time>=54.65){const q=P(time,54.65,59),launchY=426+Math.sin(54.65*1.5)*5;
+let tx=mix(2547,2835,q),ty=mix(launchY,510,q)-Math.sin(q*PI)*235,scale=mix(.14,.95,P(time,54.65,55.2));
+local(tx,ty+Math.sin(time*2)*2,scale,()=>{c.rotate(Math.sin(q*PI)*-.42);turtle(0,0,1,time,true)});
+splash(tx,535,(time-58.6)/1.3);
+if(time>=59)for(let j=0;j<3;j++){c.beginPath();c.ellipse(tx-10,546+j*2,48+j*12+Math.sin(time*2)*3,4+j,0,0,PI*2);c.strokeStyle='#a8c9bd';c.lineWidth=1;c.stroke()}
+}}}
+
+c.restore();
+// Subtle moving grain and vignette provide depth without external assets.
+const vignette=c.createRadialGradient(500,300,180,500,300,660);vignette.addColorStop(0,'#172c2a00');vignette.addColorStop(1,'#172c2a28');c.fillStyle=vignette;c.fillRect(0,0,1000,650);
+const texts=[
+[0,4,'Every layer of corn was stacked in a perfectly radial pattern inside the silo, with almost unnatural precision.'],
+[4,6,'The obsessive-compulsive farmer had finally finished filling it'],
+[6,8,'One ear of corn accidentally fell off the stack,'],
+[8,10,'perhaps because it was unstable, or perhaps because the wind blew it down.'],
+[10,16,'It lay on the ground until a little turtle picked it up in its mouth and carried it away.'],
+[16,26,'The turtle scurried off, dug a hole, and crawled inside.'],
+[26,33,'Later, a wolf came along and swallowed the little turtle whole.'],
+[33,43,'Then the wolf turned around, swam out into the ocean,'],
+[43,54,'and transformed into a whale.'],
+[54,65,'The whale eventually spat the little turtle back out.']
+];const text=texts.find(a=>time>=a[0]&&time<a[1]);caption.textContent=subtitles&&text?text[2]:'';drawSubtitle(caption.textContent);seek.value=time;document.getElementById('time').textContent=`${String(Math.floor(time/60)).padStart(2,'0')}:${String(Math.floor(time%60)).padStart(2,'0')} / 01:04`;
+}
+function drawSubtitle(text){
+if(!text)return;
+c.save();c.font='600 29px Arial, sans-serif';c.textAlign='center';c.textBaseline='alphabetic';
+const words=text.split(/\s+/),lines=[];let current='';
+for(const word of words){const next=current?current+' '+word:word;if(current&&c.measureText(next).width>900){lines.push(current);current=word}else current=next}if(current)lines.push(current);
+const bottom=624,step=39,top=bottom-(lines.length-1)*step;
+const shade=c.createLinearGradient(0,top-42,0,650);shade.addColorStop(0,'rgba(9,20,26,0)');shade.addColorStop(.4,'rgba(9,20,26,.32)');shade.addColorStop(1,'rgba(9,20,26,.6)');c.fillStyle=shade;c.fillRect(0,top-42,1000,692-top);
+c.lineJoin='round';c.lineWidth=4;c.strokeStyle='rgba(9,19,25,.8)';c.fillStyle='#fff8e9';
+lines.forEach((line,i)=>{c.strokeText(line,500,top+i*step);c.fillText(line,500,top+i*step)});c.restore();
+}
+function frame(now){if(exporting){last=now;requestAnimationFrame(frame);return}if(!last)last=now;if(running)t=Math.min(64,t+Math.min((now-last)/1000,.1));last=now;render(t);if(t>=64&&running){running=false;play.textContent='播放'}requestAnimationFrame(frame)}
+play.onclick=()=>{if(t>=64)t=0;running=!running;play.textContent=running?'暂停':'播放'};document.getElementById('replay').onclick=()=>{t=0;running=true;play.textContent='暂停'};seek.oninput=()=>{t=Number(seek.value);render(t)};document.getElementById('subs').onclick=function(){subtitles=!subtitles;this.textContent='字幕 '+(subtitles?'开':'关');this.setAttribute('aria-pressed',subtitles);render(t)};document.addEventListener('visibilitychange',()=>{last=0});window.renderAt=(v)=>{if(exporting)return;t=clamp(v,0,64);running=false;play.textContent='播放';render(t)};render(0);requestAnimationFrame(frame);
+// Offline export: source timeline 15 samples/s -> output timeline 30 frames/s.
+let exporting=false,exportCancelled=false,downloadURL=null;
+const exportButton=document.getElementById('exportVideo'),cancelButton=document.getElementById('cancelExport'),exportStatus=document.getElementById('exportStatus'),downloadVideo=document.getElementById('downloadVideo');
+const yieldUI=()=>new Promise(resolve=>setTimeout(resolve,0));
+function uintBytes(value){let n=BigInt(value),a=[];do{a.unshift(Number(n&255n));n>>=8n}while(n);return new Uint8Array(a)}
+function ebmlSize(value){let n=BigInt(value),length=1;while(n>=(1n<<BigInt(7*length))-1n)length++;n|=1n<<BigInt(7*length);const a=new Uint8Array(length);for(let i=length-1;i>=0;i--){a[i]=Number(n&255n);n>>=8n}return a}
+function ebml(id,body){const blob=body instanceof Blob?body:new Blob([body]);return new Blob([uintBytes(id),ebmlSize(blob.size),blob])}
+function ebmlUint(id,n){return ebml(id,uintBytes(n))}
+function ebmlText(id,s){return ebml(id,new TextEncoder().encode(s))}
+function ebmlFloat(id,n){const a=new Uint8Array(8);new DataView(a.buffer).setFloat64(0,n);return ebml(id,a)}
+function packWebM(chunks,width,height,fps){
+const header=ebml(0x1a45dfa3,new Blob([ebmlUint(0x4286,1),ebmlUint(0x42f7,1),ebmlUint(0x42f2,4),ebmlUint(0x42f3,8),ebmlText(0x4282,'webm'),ebmlUint(0x4287,4),ebmlUint(0x4285,2)]));
+// 1 microsecond ticks preserve exact rational frame timestamps after rounding.
+const info=ebml(0x1549a966,new Blob([ebmlUint(0x2ad7b1,1000),ebmlFloat(0x4489,chunks.length*1e6/fps),ebmlText(0x4d80,'Canvas delta exporter'),ebmlText(0x5741,'Canvas delta exporter')]));
+const track=ebml(0xae,new Blob([ebmlUint(0xd7,1),ebmlUint(0x73c5,1),ebmlUint(0x83,1),ebmlUint(0x9c,0),ebmlText(0x86,'V_VP8'),ebmlUint(0x23e383,Math.round(1e9/fps)),ebml(0xe0,new Blob([ebmlUint(0xb0,width),ebmlUint(0xba,height)]))]));
+const tracks=ebml(0x1654ae6b,track),clusters=[];let blocks=[],base=0;
+function flush(){if(blocks.length){clusters.push(ebml(0x1f43b675,new Blob([ebmlUint(0xe7,base),...blocks])));blocks=[]}}
+for(const chunk of chunks){if(!blocks.length||chunk.timestamp-base>30000||chunk.key){flush();base=chunk.timestamp}const relative=chunk.timestamp-base,head=new Uint8Array(4);head[0]=0x81;new DataView(head.buffer).setInt16(1,relative);head[3]=chunk.key?0x80:0;blocks.push(ebml(0xa3,new Blob([head,chunk.data])))}flush();
+return new Blob([header,ebml(0x18538067,new Blob([info,tracks,...clusters]))],{type:'video/webm'});
+}
+// Only the first image is copied in full. Later frames patch changed tiles.
+function applyChangedTiles(next,previous,target,tileSize=32){
+if(!previous){target.putImageData(next,0,0);return Math.ceil(next.width/tileSize)*Math.ceil(next.height/tileSize)}
+const a=new Uint32Array(next.data.buffer,next.data.byteOffset,next.data.byteLength/4),b=new Uint32Array(previous.data.buffer,previous.data.byteOffset,previous.data.byteLength/4);let changed=0;
+for(let y=0;y<next.height;y+=tileSize)for(let x=0;x<next.width;x+=tileSize){const w=Math.min(tileSize,next.width-x),h=Math.min(tileSize,next.height-y);let dirty=false;scan:for(let yy=y;yy<y+h;yy++){const end=yy*next.width+x+w;for(let j=yy*next.width+x;j<end;j++)if(a[j]!==b[j]){dirty=true;break scan}}if(dirty){target.putImageData(next,0,0,x,y,w,h);changed++}}
+return changed;
+}
+function abortIfNeeded(){if(exportCancelled)throw new DOMException('已取消导出','AbortError')}
+cancelButton.onclick=()=>{exportCancelled=true;cancelButton.disabled=true;exportStatus.textContent='正在取消...'};
+exportButton.onclick=async()=>{
+if(exporting)return;
+if(typeof VideoEncoder==='undefined'||typeof VideoFrame==='undefined'){exportStatus.textContent='此浏览器未开放视频编码功能. 请用新版 Chrome 打开此 HTML 后重试.';return}
+exporting=true;exportCancelled=false;const oldTime=t,wasRunning=running;running=false;
+const controls=[...document.querySelectorAll('footer button, footer input')];controls.forEach(el=>el.disabled=true);cancelButton.hidden=false;cancelButton.disabled=false;exportStatus.textContent='正在检查视频编码支持...';
+let encoder=null,wakeLock=null;const chunks=[];let encoderError=null,keyCount=0,deltaCount=0;
+try{
+const width=1000,height=650,fps=30,sampleFPS=15,count=64*sampleFPS;
+const config={codec:'vp8',width,height,framerate:fps,bitrate:4000000,latencyMode:'realtime'};
+const support=await VideoEncoder.isConfigSupported(config);abortIfNeeded();if(!support.supported)throw Error('此浏览器不支持 VP8 视频编码. 请用新版 Chrome 重试.');
+if(navigator.wakeLock)try{wakeLock=await navigator.wakeLock.request('screen')}catch{}
+const sample=document.createElement('canvas');sample.width=width;sample.height=height;const sc=sample.getContext('2d',{willReadFrequently:true});
+const rebuilt=document.createElement('canvas');rebuilt.width=width;rebuilt.height=height;const rc=rebuilt.getContext('2d');let previous=null;
+encoder=new VideoEncoder({output(chunk){const data=new Uint8Array(chunk.byteLength);chunk.copyTo(data);const key=chunk.type==='key';if(key)keyCount++;else deltaCount++;chunks.push({data,timestamp:chunk.timestamp,key})},error(e){encoderError=e}});encoder.configure(support.config);
+for(let i=0;i<count;i++){
+abortIfNeeded();if(encoderError)throw encoderError;
+// Deterministic source time, independent of display refresh and device speed.
+render(i/sampleFPS);sc.drawImage(canvas,0,0,width,height);const pixels=sc.getImageData(0,0,width,height);applyChangedTiles(pixels,previous,rc);previous=pixels;
+const timestamp=Math.round(i*1e6/fps),duration=Math.round((i+1)*1e6/fps)-timestamp;
+const vf=new VideoFrame(rebuilt,{timestamp,duration});try{encoder.encode(vf,{keyFrame:i===0})}finally{vf.close()}
+// Bound the raw frame queue on mobile; do not accumulate PNGs or RGBA frames.
+if(encoder.encodeQueueSize>=4){await encoder.flush();if(encoderError)throw encoderError}
+if(i%4===0||i===count-1){exportStatus.textContent=`导出 ${Math.floor((i+1)/count*100)}% · ${i+1}/${count} 帧`;await yieldUI()}
+}
+await encoder.flush();abortIfNeeded();if(encoderError)throw encoderError;
+if(chunks.length!==count||!chunks[0].key)throw Error('编码帧不完整, 未生成视频. 请重试.');
+exportStatus.textContent='正在封装视频...';await yieldUI();const blob=packWebM(chunks,width,height,fps);abortIfNeeded();
+if(downloadURL)URL.revokeObjectURL(downloadURL);downloadURL=URL.createObjectURL(blob);downloadVideo.href=downloadURL;downloadVideo.download='corn_turtle_2x_30fps.webm';downloadVideo.hidden=false;downloadVideo.textContent=`下载视频 (${(blob.size/1048576).toFixed(1)} MB)`;
+exportStatus.textContent=`已完成 · 32秒 · 30fps · ${keyCount}个关键帧 + ${deltaCount}个差分帧. 未开始下载时, 请点下载视频.`;downloadVideo.click();
+}catch(e){exportStatus.textContent=e.name==='AbortError'?'已取消导出.':`导出失败: ${e.message||e}`}
+finally{if(encoder&&encoder.state!=='closed')encoder.close();if(wakeLock)try{await wakeLock.release()}catch{}chunks.length=0;exporting=false;controls.forEach(el=>el.disabled=false);cancelButton.hidden=true;t=oldTime;running=wasRunning;last=0;play.textContent=running?'暂停':'播放';render(t)}
+};
+
+</script></body></html>
